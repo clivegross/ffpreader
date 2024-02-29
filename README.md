@@ -8,7 +8,7 @@ As it stands, Configuration Manager PLUS is not equipped with a feature to expor
 
 The purpose of this tool is to read Ampac FireFinder PLUS *.ffp Configuration Files, translate into a human-readable format and write to csv and Excel workbooks.
 
-An additional function of the tool is to track changes (work in progress), so that a multiple revisions of a program can be compared and changes summarised, eg a new detector is added or a device is moved to a new zone.
+An additional function of the tool is to track changes (work in progress), so that multiple revisions of a program can be compared and changes summarised, eg a new detector is added, a device is moved to a new zone.
 
 ## Usage
 
@@ -24,4 +24,3 @@ The following types of equipment are tabulated in output files:
 - zones
 
 For Modbus integration, these lists are split out into separte Excel sheets for the Modbus register mapping, eg loops 1-90, 91-180, 181-250.
- 

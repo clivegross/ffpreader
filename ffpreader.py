@@ -76,6 +76,21 @@ def filter_node_sections(sections):
     filtered = filter_sections_start(sections, "P")
     return filtered
 
+# function to read list of strings from ffp file and only return zone sections (first line starts with Z)
+def filter_zone_sections(sections):
+    '''
+    Example zone:
+    [ Z 1 Z 1
+    Y	TOWER 2 BASEMENT 5	N	N	0	0	N	N	N	N	0	0	N	N	N	
+    Y	TOWER 3 BASEMENT 5 	N	N	0	0	N	N	N	N	0	0	N	N	N
+    ...	
+    N	Unassigned Text	N	N	0	0	N	N	N	N	0	0	N	N	N	
+    N	Unassigned Text	N	N	0	0	N	N	N	N	0	0	N	N	N	
+    ]
+    '''
+    filtered = filter_sections_start(sections, "Z")
+    return filtered
+
 # function to read a string, skip first line and parse the rest as a tab separated table
 def parse_tsv(text):
     '''
@@ -186,7 +201,7 @@ def parse_loop_info_sections(sections):
     loop_info_list = [parse_loop_info_section(section) for section in sections]
     return loop_info_list
 
-
+# function to read a section and return a dict containing loop device info
 def parse_loop_device_section(section):
     '''
     Example:
@@ -209,6 +224,64 @@ def parse_loop_device_sections(sections):
     loop_device_list = [parse_loop_device_section(section) for section in sections]
     return loop_device_list
 
+# function to read a section and return a dict containing zone section info and zone list df
+def parse_zone_section(section):
+    '''
+    Example:
+    [ Z 1 Z 1
+    Y	TOWER 2 BASEMENT 5	N	N	0	0	N	N	N	N	0	0	N	N	N	
+    Y	TOWER 3 BASEMENT 5 	N	N	0	0	N	N	N	N	0	0	N	N	N
+    ...	
+    N	Unassigned Text	N	N	0	0	N	N	N	N	0	0	N	N	N	
+    N	Unassigned Text	N	N	0	0	N	N	N	N	0	0	N	N	N	
+    ]
+    Returns:
+    {
+        'raw': 'Z 1 Z 1',
+        'zones': pd.DataFrame(
+            Columns: ['zone', 'description']
+            Index: [0, 1, 2, ...]
+            Data: [
+                [1, 'TOWER 2 BASEMENT 5'],
+                [2, 'TOWER 3 BASEMENT 5'],
+                ...
+                [4999, 'Unassigned Text'],
+                [5000, 'Unassigned Text']
+            ]
+                )
+    }
+    '''
+    zone_info = {}
+    zone_info['raw'] = section.split('\n')[0]
+    zone_info['zones'] = create_zone_df(section)
+    return zone_info
+
+# function to read a list of zone sections and return a list of zone dicts
+def parse_zone_sections(sections):
+    zone_list = [parse_zone_section(section) for section in sections]
+    return zone_list
+
+# create a pandas dataframe from a zone section
+def create_zone_df(section):
+    raw_list_of_lists = parse_tsv(section)
+    # set the column names ['zone', 'description', ...rest is not required]
+    df = list_to_df(raw_list_of_lists)
+    # delete the first column
+    df = df.drop(df.columns[0], axis=1)
+    # set the new first column name to 'description'
+    df = df.rename(columns={df.columns[0]: 'description'})
+    # remove the remaining columns
+    df = df.drop(df.columns[1:], axis=1)
+    # add a 1-indexed column for the zone ID
+    df['zone'] = df.index + 1
+    # move the zone_id to the front
+    cols = df.columns.tolist()
+    cols = cols[-1:] + cols[:-1]
+    df = df[cols]
+    # add a column containing the raw section header
+    df['raw'] = section.split('\n')[0]
+    return df
+    
 # create a pandas dataframe from a loop devices section
 def create_loop_device_df(section):
     raw_list_of_lists = parse_tsv(section)
@@ -274,8 +347,18 @@ def filter_and_parse_loop_devices_sections(sections):
     return merged
 
 # function to combine all dfs in the 'devices' column of a list of dicts into a single df
-def combine_devices_dfs(merged):
-    devices_dfs = [loop['devices'] for loop in merged]
+def combine_dfs(merged, data_key='devices'):
+    '''
+    takes a list of dicts containing a 'data' key with a pd.DataFrame value and combines them into a single pd.DataFrameq
+    Example:
+    merged = [
+        {'devices': pd.DataFrame(...), 'id': '110101', 'loop': 23, 'node': 11, 'raw': 'M 110101 X 1'},
+        ...
+    ]
+    Returns:
+    pd.DataFrame(...)
+    '''
+    devices_dfs = [loop[data_key] for loop in merged]
     combined = pd.concat(devices_dfs)
     return combined
 
@@ -342,21 +425,37 @@ def write_df_to_excel_and_format(data, excel_filepath, as_table=False):
 
     print("done")
 
+def clean_df(df):
+
+    if 'zone' in df.columns:
+        # Remove rows where 'zone' is 0
+        df = df[df['zone'] != 0]
+
+    if 'description' in df.columns:
+        # Remove rows where 'description' is empty or NaN
+        df = df[df['description'].ne('') & df['description'].notna()]
+
+        # Remove rows where 'description' is 'Unassigned Text'
+        df = df[df['description'] != 'Unassigned Text']
+
+        # Remove leading and trailing whitespace from 'description' and 'type'
+        df['description'] = df['description'].str.strip()
+
+        # Replace illegal characters in 'description' and 'type'
+        df['description'] = df['description'].str.replace('/', '-')
+        df['description'] = df['description'].str.replace('&', '+')
+
+    # Replace illegal characters in 'type' only if 'type' column exists
+    if 'type' in df.columns:
+        df['type'] = df['type'].str.strip()
+        df['type'] = df['type'].str.replace('/', '-')
+    
+    return df
+
+
 def clean_devices_df(df):
-    # Remove rows where 'zone' is 0
-    df = df[df['zone'] != 0]
-
-    # Remove rows where 'description' is empty or NaN
-    df = df[df['description'].ne('') & df['description'].notna()]
-
-    # Remove leading and trailing whitespace from 'description' and 'type'
-    df['description'] = df['description'].str.strip()
-    df['type'] = df['type'].str.strip()
-
-    # Replace illegal characters in 'description' and 'type'
-    df['description'] = df['description'].str.replace('/', '-')
-    df['type'] = df['type'].str.replace('/', '-')
-    df['description'] = df['description'].str.replace('&', '+')
+    # initial clean
+    df = clean_df(df)
 
     # Select all columns up to and including 'type'
     df = df.loc[:, :'type']
@@ -412,7 +511,24 @@ def split_df_for_modbus_mapping(df, equipment_type='devices'):
             }
         ]
     elif equipment_type == 'zones':
-        return []
+        # Split the DataFrame
+        df1 = df[df['zone'] <= 1000]
+        df2 = df[(df['zone'] > 1001) & (df['zone'] <= 2000)]
+        df3 = df[df['zone'] > 2000]
+        return [
+            {
+                'sheet_name': equipment_type+'_Z1_to_Z1000',
+                'data': df1
+            },
+            {
+                'sheet_name': equipment_type+'_Z1001_to_Z2000',
+                'data': df2
+            },
+            {
+                'sheet_name': equipment_type+'_Z2001_to_Z2500',
+                'data': df3
+            }
+        ]
     else:
         return []
 
@@ -445,6 +561,21 @@ text = load_text(ffp_database_filepath)
 sections = separate_sections(text)
 
 # ==================
+# make list of zones and write to file
+zone_sections = filter_zone_sections(sections)
+zone_sections_list = parse_zone_sections(zone_sections)
+print("number of zone sections: ", len(zone_sections))
+# ==================
+# combine all zones dfs
+# only appears to be one zone section in the example file but just in case
+print("combined loop devices")
+combined_zones_df = combine_dfs(zone_sections_list, 'zones')
+print(combined_zones_df.head())
+# write the entire loop devices table to csv, including unused addresses
+combined_zones_df.to_csv(zone_csv, index=False)
+cleaned_zones_df = clean_df(combined_zones_df)
+
+# ==================
 # make list of nodes and write to file
 node_sections = filter_node_sections(sections)
 node_list = parse_node_sections(node_sections)
@@ -463,14 +594,14 @@ print(loop_info_list[:5])
 
 # ==================
 # make list of loop devices and write to file
-loop_device_sections = filter_loop_device_sections(sections)
-loop_device_sections_header_info = parse_sections_header_info(loop_device_sections)
-print("loop device sample")
-print("loop devices")
-loop_devices = parse_loop_device_sections(loop_device_sections)
-print(loop_devices[:5])
-print(loop_device_sections_header_info[:5])
-print("number of loop device sections: ", len(loop_device_sections))
+# loop_device_sections = filter_loop_device_sections(sections)
+# loop_device_sections_header_info = parse_sections_header_info(loop_device_sections)
+# print("loop device sample")
+# print("loop devices")
+# loop_devices = parse_loop_device_sections(loop_device_sections)
+# print(loop_devices[:5])
+# print(loop_device_sections_header_info[:5])
+# print("number of loop device sections: ", len(loop_device_sections))
 # ==================
 # merge loop info and devices
 print("merged loop info and devices")
@@ -479,7 +610,7 @@ print(loop_devices_by_loop[:5])
 # ==================
 # combine all devices dfs
 print("combined loop devices")
-combined_loop_devices_df = combine_devices_dfs(loop_devices_by_loop)
+combined_loop_devices_df = combine_dfs(loop_devices_by_loop)
 print(combined_loop_devices_df.head())
 # write to csv but drop the index column
 
@@ -489,11 +620,14 @@ combined_loop_devices_df.to_csv(device_csv, index=False)
 # clean the loop devices table before writing to Excel
 cleaned_loop_devices_df = clean_devices_df(combined_loop_devices_df)
 
+# split the data into separate sheets for each modbus register mapping
+print("splitting data into separate sheets for each modbus register mapping")
+zones_data = split_df_for_modbus_mapping(cleaned_zones_df, 'zones')
 nodes_data = split_df_for_modbus_mapping(node_list, 'nodes')
 devices_data = split_df_for_modbus_mapping(cleaned_loop_devices_df, 'devices')
 loops_data = split_df_for_modbus_mapping(loop_info_list, 'loops')
 # combine the data
-data = devices_data + loops_data + nodes_data
+data = devices_data + loops_data + nodes_data + zones_data
 print(data)
 
 write_df_to_excel_and_format(data, excel_filepath)
