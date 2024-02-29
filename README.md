@@ -12,7 +12,7 @@ An additional function of the tool is to track changes (work in progress), so th
 
 ## Usage
 
-Requires python v3 to run.
+Requires `python3` & `pandas` to run. Requires `openpyxl` to export to Excel.
 
 The functions and working code is currently contained in `ffpreader.py`. There is an example input .ffp file and example output csv files and Excel workbook.
 
