@@ -534,102 +534,102 @@ def split_df_for_modbus_mapping(df, equipment_type='devices'):
 
     return data
 
-# set up file paths
-input_dir = "./data/input"
-output_dir = "./data/output"
 
-# input ffp database file
-ffp_database_filename = 'QWP 16.02.24.ffp'
-ffp_database_filepath = os.path.join(input_dir, ffp_database_filename)
+if __name__ == "__main__":
+    # input ffp database file
+    input_dir = "./data/input"
+    ffp_database_filename = 'QWP 16.02.24.ffp'
+    ffp_database_filename_2 = 'QWP 17.02.25 ASE change rev 2 .ffp'
+    ffp_database_filepath = os.path.join(input_dir, ffp_database_filename_2)
 
-# output csv and excel files
-excel_file = ffp_database_filename+'.xlsx'
-excel_filepath = os.path.join(output_dir, excel_file)
+    # output csv and excel files
+    output_dir = "./data/output"
+    excel_file = ffp_database_filename_2+'.xlsx'
+    excel_filepath = os.path.join(output_dir, excel_file)
+    device_sheet = 'devices'
+    device_csv = os.path.join(output_dir, device_sheet+'.csv')
+    loop_sheet = 'loops'
+    loop_csv = os.path.join(output_dir, loop_sheet+'.csv')
+    node_sheet = 'nodes'
+    node_csv = os.path.join(output_dir, node_sheet+'.csv')
+    zone_sheet = 'zones'
+    zone_csv = os.path.join(output_dir, zone_sheet+'.csv')
 
-device_sheet = 'devices'
-device_csv = os.path.join(output_dir, device_sheet+'.csv')
-loop_sheet = 'loops'
-loop_csv = os.path.join(output_dir, loop_sheet+'.csv')
-node_sheet = 'nodes'
-node_csv = os.path.join(output_dir, node_sheet+'.csv')
-zone_sheet = 'zones'
-zone_csv = os.path.join(output_dir, zone_sheet+'.csv')
+    # load text file
+    text = load_text(ffp_database_filepath)
+    # separate out into list of sections seperated by []
+    sections = separate_sections(text)
 
-# load text file
-text = load_text(ffp_database_filepath)
-# separate out into list of sections seperated by []
-sections = separate_sections(text)
+    # ==================
+    # make list of zones and write to file
+    zone_sections = filter_zone_sections(sections)
+    zone_sections_list = parse_zone_sections(zone_sections)
+    print("number of zone sections: ", len(zone_sections))
+    # ==================
+    # combine all zones dfs
+    # only appears to be one zone section in the example file but just in case
+    print("combined loop devices")
+    combined_zones_df = combine_dfs(zone_sections_list, 'zones')
+    print(combined_zones_df.head())
+    # write the entire loop devices table to csv, including unused addresses
+    combined_zones_df.to_csv(zone_csv, index=False)
+    cleaned_zones_df = clean_df(combined_zones_df)
 
-# ==================
-# make list of zones and write to file
-zone_sections = filter_zone_sections(sections)
-zone_sections_list = parse_zone_sections(zone_sections)
-print("number of zone sections: ", len(zone_sections))
-# ==================
-# combine all zones dfs
-# only appears to be one zone section in the example file but just in case
-print("combined loop devices")
-combined_zones_df = combine_dfs(zone_sections_list, 'zones')
-print(combined_zones_df.head())
-# write the entire loop devices table to csv, including unused addresses
-combined_zones_df.to_csv(zone_csv, index=False)
-cleaned_zones_df = clean_df(combined_zones_df)
+    # ==================
+    # make list of nodes and write to file
+    node_sections = filter_node_sections(sections)
+    node_list = parse_node_sections(node_sections)
+    print("number of node sections: ", len(node_sections))
+    print(node_list[:10])
+    write_csv_from_list_of_dicts(node_csv, node_list)
 
-# ==================
-# make list of nodes and write to file
-node_sections = filter_node_sections(sections)
-node_list = parse_node_sections(node_sections)
-print("number of node sections: ", len(node_sections))
-print(node_list[:10])
-write_csv_from_list_of_dicts(node_csv, node_list)
+    # ==================
+    # make list of loops and write to file
+    loop_info_sections = filter_loop_info_sections(sections)
+    loop_info_list = parse_loop_info_sections(loop_info_sections)
+    write_csv_from_list_of_dicts(loop_csv, loop_info_list)
+    print("number of loop info sections: ", len(loop_info_sections))
+    # print(loop_info_sections[:5])
+    print(loop_info_list[:5])
 
-# ==================
-# make list of loops and write to file
-loop_info_sections = filter_loop_info_sections(sections)
-loop_info_list = parse_loop_info_sections(loop_info_sections)
-write_csv_from_list_of_dicts(loop_csv, loop_info_list)
-print("number of loop info sections: ", len(loop_info_sections))
-# print(loop_info_sections[:5])
-print(loop_info_list[:5])
+    # ==================
+    # make list of loop devices and write to file
+    # loop_device_sections = filter_loop_device_sections(sections)
+    # loop_device_sections_header_info = parse_sections_header_info(loop_device_sections)
+    # print("loop device sample")
+    # print("loop devices")
+    # loop_devices = parse_loop_device_sections(loop_device_sections)
+    # print(loop_devices[:5])
+    # print(loop_device_sections_header_info[:5])
+    # print("number of loop device sections: ", len(loop_device_sections))
+    # ==================
+    # merge loop info and devices
+    print("merged loop info and devices")
+    loop_devices_by_loop = filter_and_parse_loop_devices_sections(sections)
+    print(loop_devices_by_loop[:5])
+    # ==================
+    # combine all devices dfs
+    print("combined loop devices")
+    combined_loop_devices_df = combine_dfs(loop_devices_by_loop)
+    print(combined_loop_devices_df.head())
+    # write to csv but drop the index column
 
-# ==================
-# make list of loop devices and write to file
-# loop_device_sections = filter_loop_device_sections(sections)
-# loop_device_sections_header_info = parse_sections_header_info(loop_device_sections)
-# print("loop device sample")
-# print("loop devices")
-# loop_devices = parse_loop_device_sections(loop_device_sections)
-# print(loop_devices[:5])
-# print(loop_device_sections_header_info[:5])
-# print("number of loop device sections: ", len(loop_device_sections))
-# ==================
-# merge loop info and devices
-print("merged loop info and devices")
-loop_devices_by_loop = filter_and_parse_loop_devices_sections(sections)
-print(loop_devices_by_loop[:5])
-# ==================
-# combine all devices dfs
-print("combined loop devices")
-combined_loop_devices_df = combine_dfs(loop_devices_by_loop)
-print(combined_loop_devices_df.head())
-# write to csv but drop the index column
+    # write the entire loop devices table to csv, including unused addresses
+    combined_loop_devices_df.to_csv(device_csv, index=False)
 
-# write the entire loop devices table to csv, including unused addresses
-combined_loop_devices_df.to_csv(device_csv, index=False)
+    # clean the loop devices table before writing to Excel
+    cleaned_loop_devices_df = clean_devices_df(combined_loop_devices_df)
 
-# clean the loop devices table before writing to Excel
-cleaned_loop_devices_df = clean_devices_df(combined_loop_devices_df)
+    # split the data into separate sheets for each modbus register mapping
+    print("splitting data into separate sheets for each modbus register mapping")
+    zones_data = split_df_for_modbus_mapping(cleaned_zones_df, 'zones')
+    nodes_data = split_df_for_modbus_mapping(node_list, 'nodes')
+    devices_data = split_df_for_modbus_mapping(cleaned_loop_devices_df, 'devices')
+    loops_data = split_df_for_modbus_mapping(loop_info_list, 'loops')
+    # combine the data
+    data = devices_data + loops_data + nodes_data + zones_data
+    print(data)
 
-# split the data into separate sheets for each modbus register mapping
-print("splitting data into separate sheets for each modbus register mapping")
-zones_data = split_df_for_modbus_mapping(cleaned_zones_df, 'zones')
-nodes_data = split_df_for_modbus_mapping(node_list, 'nodes')
-devices_data = split_df_for_modbus_mapping(cleaned_loop_devices_df, 'devices')
-loops_data = split_df_for_modbus_mapping(loop_info_list, 'loops')
-# combine the data
-data = devices_data + loops_data + nodes_data + zones_data
-print(data)
-
-write_df_to_excel_and_format(data, excel_filepath)
+    write_df_to_excel_and_format(data, excel_filepath)
 
 
