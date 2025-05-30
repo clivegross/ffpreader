@@ -17,6 +17,15 @@ def filter_sections_start(sections, keyword):
     return filtered
 
 
+def filter_sections_end(sections, keyword):
+    """read list of strings and only return those that contain a keyword at end of first line"""
+    filtered = []
+    for section in sections:
+        if section.split("\n")[0].endswith(keyword):
+            filtered.append(section)
+    return filtered
+
+
 def parse_tsv(text):
     """
     Read a string, skip first line and parse the rest as a tab separated value (tsv) list
