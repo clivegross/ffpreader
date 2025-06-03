@@ -15,6 +15,10 @@ class FFPReader:
     _NODE_SECTION_FLAG = "P"
     _ZONE_SECTION_FLAG = "Z"
     _ZONE_SECTION_NAME = "zones"
+    _ZONE_COLNAME = "zone"
+    _LOOP_COLNAME = "loop"
+    _DEVICE_COLNAME = "device"
+    _NODE_COLNAME = "node"
     _LOOP_OR_LOOP_DEVICE_SECTION_FLAG = "M"
     _LOOP_INFO_SECTION_SUFFIX = "X 1"
     _DEVICE_SECTION_SUFFIX = "X 2"
@@ -50,15 +54,6 @@ class FFPReader:
             "zones": self.cleaned_zones,
             "loops": self.loops,
             "devices": self.cleaned_devices,
-        }
-
-    @property
-    def modbus_configuration(self):
-        return {
-            "nodes": self.split_for_modbus_mapping(equipment_type="nodes"),
-            "zones": self.split_for_modbus_mapping(equipment_type="zones"),
-            "loops": self.split_for_modbus_mapping(equipment_type="loops"),
-            "devices": self.split_for_modbus_mapping(equipment_type="devices"),
         }
 
     @property
@@ -470,108 +465,6 @@ class FFPReader:
             df = list_to_df(df)
         return df
 
-    def split_for_modbus_mapping(self, equipment_type="devices", cleaned=True):
-        """
-        Split the DataFrame into separate objects for Modbus gateway mapping.
-
-        This method splits the data for a specified equipment type into multiple
-        DataFrames based on predefined ranges for Modbus gateways. The split is
-        performed differently depending on the equipment type.
-
-        Args:
-            equipment_type (str, optional): The type of equipment to process.
-                Must be one of the following:
-                - "devices": Split by loop ranges (L1 to L90, L91 to L180, L181 to L250).
-                - "loops": Split by loop ranges (L1 to L90, L91 to L180, L181 to L250).
-                - "nodes": No split; returns a single gateway with all nodes.
-                - "zones": Split by zone ranges (Z1 to Z1000, Z1001 to Z2000, Z2001 to Z2500).
-                Defaults to "devices".
-            cleaned (bool, optional): Whether to use the cleaned version of the data
-                (if available). Defaults to True.
-
-        Returns:
-            list[dict]: A list of dictionaries, where each dictionary represents a Modbus
-            gateway and contains the following keys:
-                - "gateway" (int): The gateway number.
-                - "description" (str): A description of the data range for the gateway.
-                - "data" (pd.DataFrame): The DataFrame containing the data for the gateway.
-
-        Notes:
-            - For "devices" and "loops", the split is based on the "loop" column:
-                - Gateway 1: Loops 1 to 90
-                - Gateway 2: Loops 91 to 180
-                - Gateway 3: Loops 181 to 250
-            - For "zones", the split is based on the "zone" column:
-                - Gateway 1: Zones 1 to 1000
-                - Gateway 2: Zones 1001 to 2000
-                - Gateway 3: Zones 2001 to 2500
-            - For "nodes", no splitting is performed; all nodes are assigned to Gateway 1.
-            - If an invalid `equipment_type` is provided, an empty list is returned.
-        """
-        if equipment_type == "devices" or equipment_type == "loops":
-            if equipment_type == "loops":
-                df = self.loops.copy()
-            else:
-                if cleaned:
-                    df = self.cleaned_devices.copy()
-                else:
-                    df = self.devices.copy()
-            # Split the DataFrame
-            df1 = df[df["loop"] <= 90]
-            df2 = df[(df["loop"] > 90) & (df["loop"] <= 180)]
-            df3 = df[df["loop"] > 180]
-
-            # Create a list of dictionaries
-            data = [
-                {
-                    "gateway": 1,
-                    "description": equipment_type + "_L1_to_L90",
-                    "data": df1,
-                },
-                {
-                    "gateway": 2,
-                    "description": equipment_type + "_L91_to_L180",
-                    "data": df2,
-                },
-                {
-                    "gateway": 3,
-                    "description": equipment_type + "_L181_to_L250",
-                    "data": df3,
-                },
-            ]
-        elif equipment_type == "nodes":
-            return [{"gateway": 1, "description": equipment_type, "data": self.nodes}]
-        elif equipment_type == "zones":
-            if cleaned:
-                df = self.cleaned_zones.copy()
-            else:
-                df = self.zones.copy()
-            # Split the DataFrame
-            df1 = df[df["zone"] <= 1000]
-            df2 = df[(df["zone"] > 1001) & (df["zone"] <= 2000)]
-            df3 = df[df["zone"] > 2000]
-            return [
-                {
-                    "gateway": 1,
-                    "description": equipment_type + "_Z1_to_Z1000",
-                    "data": df1,
-                },
-                {
-                    "gateway": 2,
-                    "description": equipment_type + "_Z1001_to_Z2000",
-                    "data": df2,
-                },
-                {
-                    "gateway": 3,
-                    "description": equipment_type + "_Z2001_to_Z2500",
-                    "data": df3,
-                },
-            ]
-        else:
-            return []
-
-        return data
-
 
 if __name__ == "__main__":
     input_dir = "./data/input"
@@ -627,10 +520,3 @@ if __name__ == "__main__":
         output_dir, ffp_database_filename + ".config (cleaned)" + ".xlsx"
     )
     write_dfs_to_excel_and_format(reader.cleaned_configuration, excel_file)
-
-    print("\n####\nModbus Configuration")
-    print(reader.modbus_configuration)
-    excel_file = os.path.join(
-        output_dir, ffp_database_filename + ".modbus config" + ".xlsx"
-    )
-    write_dfs_to_excel_and_format(reader.modbus_configuration, excel_file)
