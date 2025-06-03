@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 
 class ModbusMapper:
@@ -16,11 +17,50 @@ class ModbusMapper:
     _PREALARM_DECIMAL_COLNAME = "prealarm_decimal"
     _FAULT_DECIMAL_COLNAME = "fault_decimal"
     _ISOLATE_DECIMAL_COLNAME = "isolate_decimal"
+    _OPEN_CIRCUIT_BIT_OFFSET_COLNAME = "open_circuit_bit_offset"
+    _SHORT_CIRCUIT_A_BIT_OFFSET_COLNAME = "short_circuit_a_bit_offset"
+    _SHORT_CIRCUIT_B_BIT_OFFSET_COLNAME = "short_circuit_b_bit_offset"
+    _LOOP_DOWN_BIT_OFFSET_COLNAME = "loop_down_bit_offset"
+    _OVER_CURRENT_BIT_OFFSET_COLNAME = "over_current_bit_offset"
+    _NON_CONFIGURED_BIT_OFFSET_COLNAME = "non_configured_bit_offset"
+    _LOOP_MODULE_FAULT_BIT_OFFSET_COLNAME = "loop_module_fault_bit_offset"
+    _OPEN_CIRCUIT_DECIMAL_COLNAME = "open_circuit_decimal"
+    _SHORT_CIRCUIT_A_DECIMAL_COLNAME = "short_circuit_a_decimal"
+    _SHORT_CIRCUIT_B_DECIMAL_COLNAME = "short_circuit_b_decimal"
+    _LOOP_DOWN_DECIMAL_COLNAME = "loop_down_decimal"
+    _OVER_CURRENT_DECIMAL_COLNAME = "over_current_decimal"
+    _NON_CONFIGURED_DECIMAL_COLNAME = "non_configured_decimal"
+    _LOOP_MODULE_FAULT_DECIMAL_COLNAME = "loop_module_fault_decimal"
     _GROUPS = {
         "ALARM": [_ALARM_BIT_OFFSET_COLNAME, _ALARM_DECIMAL_COLNAME],
         "PREALARM": [_PREALARM_BIT_OFFSET_COLNAME, _PREALARM_DECIMAL_COLNAME],
         "FAULT": [_FAULT_BIT_OFFSET_COLNAME, _FAULT_DECIMAL_COLNAME],
         "ISOLATE": [_ISOLATE_BIT_OFFSET_COLNAME, _ISOLATE_DECIMAL_COLNAME],
+        "LOOP_OPEN_CIRCUIT": [
+            _OPEN_CIRCUIT_BIT_OFFSET_COLNAME,
+            _OPEN_CIRCUIT_DECIMAL_COLNAME,
+        ],
+        "LOOP_SHORT_CIRCUIT_A": [
+            _SHORT_CIRCUIT_A_BIT_OFFSET_COLNAME,
+            _SHORT_CIRCUIT_A_DECIMAL_COLNAME,
+        ],
+        "LOOP_SHORT_CIRCUIT_B": [
+            _SHORT_CIRCUIT_B_BIT_OFFSET_COLNAME,
+            _SHORT_CIRCUIT_B_DECIMAL_COLNAME,
+        ],
+        "LOOP_DOWN": [_LOOP_DOWN_BIT_OFFSET_COLNAME, _LOOP_DOWN_DECIMAL_COLNAME],
+        "LOOP_OVER_CURRENT": [
+            _OVER_CURRENT_BIT_OFFSET_COLNAME,
+            _OVER_CURRENT_DECIMAL_COLNAME,
+        ],
+        "LOOP_NON_CONFIGURED": [
+            _NON_CONFIGURED_BIT_OFFSET_COLNAME,
+            _NON_CONFIGURED_DECIMAL_COLNAME,
+        ],
+        "LOOP_MODULE_FAULT": [
+            _LOOP_MODULE_FAULT_BIT_OFFSET_COLNAME,
+            _LOOP_MODULE_FAULT_DECIMAL_COLNAME,
+        ],
     }
 
     def __init__(
@@ -150,10 +190,19 @@ class ModbusMapper:
         for group, (bit_offset_col, decimal_col) in self._GROUPS.items():
             if bit_offset_col in df.columns:
                 df[decimal_col] = df[bit_offset_col].apply(
-                    lambda x: self.calculate_register_decimal(x) if pd.notnull(x) else 0
+                    lambda x: (
+                        self.calculate_register_decimal(x) if self._is_notnull(x) else 0
+                    )
                 )
 
         return df
+
+    def _is_notnull(self, x):
+        if isinstance(x, (list, tuple, np.ndarray)):
+            # True if at least one element is not null
+            return any(pd.notnull(e) for e in x)
+        else:
+            return pd.notnull(x)
 
     def add_zone_modbus_mapping(self):
         """
@@ -165,8 +214,7 @@ class ModbusMapper:
         - fault_bit_offset
         - isolate_bit_offset
 
-        Each zone uses 4
-        bits:
+        Each zone uses 4 bits of a 16-bit register, then next zone uses the next 4 bits:
         Bit 0 = alarm
         Bit 1 = pre-alarm/inv-alarm
         Bit 2 = fault
@@ -225,6 +273,15 @@ class ModbusMapper:
 
     def add_loop_modbus_mapping(self):
         """
+        Each loop uses 8 bits:
+            Bit 0 = open circuit
+            Bit 1 = short circuit on side A
+            Bit 2 = short circuit on side B
+            Bit 2 & 3 = loop is down
+            Bit 3 = over current,
+            Bit 4 = non configured
+            Bit 5 = loop module fault
+
         Adds Modbus mapping columns to the loops DataFrame:
         - gateway
         - holding_register
@@ -272,7 +329,7 @@ class ModbusMapper:
                 offset,  # open circuit
                 offset + 1,  # short circuit A
                 offset + 2,  # short circuit B
-                offset + 2,  # loop is down (uses bits 2 & 3)
+                [offset + 2, offset + 3],  # loop is down (uses bits 2 & 3)
                 offset + 3,  # over current (also part of loop down)
                 offset + 4,  # non configured
                 offset + 5,  # loop module fault
@@ -505,16 +562,31 @@ class ModbusMapper:
 
     def calculate_register_decimal(self, *bit_offsets):
         """
-        Calculate the decimal representation of a 16-bit register based on given bit offsets.
+        CCalculate the decimal representation of a 16-bit register based on given bit offsets.
+        Accepts either multiple integer arguments or a single list-like argument.
+        Returns the sum of 2^offset for each offset.
 
         Args:
-            *bit_offsets (int): One or more bit positions (0–15) to set to 1.
+            *bit_offsets (int or list-like): One or more bit positions (0–15) to set to 1,
+                                            or a single list-like of bit positions to AND.
 
         Returns:
-            int: Decimal value of the 16-bit register with bits set at the given positions.
+            int: Decimal value of the 16-bit register.
         """
+        import collections.abc
+
+        # If a single argument and it's list-like (but not a string), treat as a list of offsets
+        if (
+            len(bit_offsets) == 1
+            and isinstance(bit_offsets[0], collections.abc.Iterable)
+            and not isinstance(bit_offsets[0], str)
+        ):
+            offsets = list(bit_offsets[0])
+        else:
+            offsets = list(bit_offsets)
+
         value = 0
-        for offset in bit_offsets:
+        for offset in offsets:
             if 0 <= offset < 16:
                 value |= 1 << offset
             else:

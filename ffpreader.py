@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from utils import (
+from .utils import (
     load_text,
     filter_sections_start,
     filter_sections_end,
